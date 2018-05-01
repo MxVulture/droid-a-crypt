@@ -7,14 +7,9 @@ import android.security.KeyPairGeneratorSpec;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.util.Base64;
+import android.util.Log;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.math.BigInteger;
@@ -23,6 +18,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
+import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.cert.CertificateException;
 import java.util.Calendar;
@@ -40,12 +36,14 @@ import javax.security.auth.x500.X500Principal;
  * Uses AndroidKeyStore provider if it's available (see {@link Build.VERSION_CODES#JELLY_BEAN_MR2}
  * <br>
  * Created by Víctor Macías on 10/30/17.
+ * Veggies N Bacon
  * victormaciasag@gmail.com
  */
 
-public class SecurityUtils {
+public class DroidACrypt {
 
-	private static final String KEY_STORE_LEGACY = "BKS";
+	private static final String TAG = "DroidACrypt";
+
 	private static final String ANDROID_KEY_STORE = "AndroidKeyStore";
 	private static final String ANDROID_OPENSSL = "AndroidOpenSSL";
 	private static final String KEY_ALIAS = "RSA_KEY";
@@ -56,7 +54,7 @@ public class SecurityUtils {
 	private static final int RSA_KEYSIZE = 2048;
 	public static final int AES_IV_SIZE = 16;
 
-	private static SecurityUtils instance;
+	private static DroidACrypt instance;
 
 	private static final SecureRandom secureRandom = new SecureRandom();
 
@@ -64,11 +62,11 @@ public class SecurityUtils {
 		return secureRandom;
 	}
 
-	public static SecurityUtils getInstance(){
+	public static DroidACrypt getInstance(){
 
-		synchronized (SecurityUtils.class){
+		synchronized (DroidACrypt.class){
 			if (instance == null){
-				instance = new SecurityUtils();
+				instance = new DroidACrypt();
 			}
 		}
 
@@ -76,7 +74,7 @@ public class SecurityUtils {
 
 	}
 
-	private SecurityUtils(){
+	private DroidACrypt(){
 
 	}
 
@@ -87,6 +85,56 @@ public class SecurityUtils {
 	public static boolean isAndroidKeystoreAvailable(){
 
 		return Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2;
+
+	}
+
+	/**
+	 * Initializes a keystore and set's an RSA key to use. Finally, sets up an AES Key in the app's
+	 * shared preferences with id {@link CryptoConstants#CRYPTO_SHPREFS}, on
+	 * {@link CryptoConstants#AES_ENCRYPTED_KEY} field. Once this is done, it is safe to call
+	 * {@link DroidACrypt#processSensitivePayload(Context, int, byte[])}
+	 *
+	 * The RSA key is created with a default key size defined by {@link #RSA_KEYSIZE} where it's
+	 * possible.
+	 * It is possible to call this method any number of times as it will not recreate the Keystore
+	 * or RSA keys if they already exist.
+	 * @param appContext Application context to load the Keystore
+	 * @return true if the Keystore and keys were properly created, false otherwise
+	 */
+	public static boolean bootstrap(@NonNull Context appContext){
+
+		try {
+
+			PRNGFixes.apply();
+
+		} catch (SecurityException ex){
+
+			Log.i(TAG, ex.getMessage());
+
+		}
+
+
+		DroidACrypt droidACrypt = DroidACrypt.getInstance();
+
+		boolean keyStoreInitialized = droidACrypt.initKeystore(appContext);
+
+		if (keyStoreInitialized){
+
+			SharedPreferences prefs = appContext.getSharedPreferences(CryptoConstants.CRYPTO_SHPREFS, Context.MODE_PRIVATE);
+
+			if (!prefs.contains(CryptoConstants.AES_ENCRYPTED_KEY)){
+
+				byte[] encryptedAESBytes = droidACrypt.generateSecretAESKey(appContext, CryptoConstants.AES_KEY_SIZE_BITS);
+
+				String b64EncryptedAES = Base64.encodeToString(encryptedAESBytes, Base64.DEFAULT);
+
+				prefs.edit().putString(CryptoConstants.AES_ENCRYPTED_KEY, b64EncryptedAES).apply();
+
+			}
+
+		}
+
+		return keyStoreInitialized;
 
 	}
 
@@ -101,7 +149,7 @@ public class SecurityUtils {
 	 * @param context Application context to load the Keystore
 	 * @return true if the Keystore and key were properly created, false otherwise
 	 */
-	public boolean initKeystore(@NonNull Context context){
+	private boolean initKeystore(@NonNull Context context){
 
 		try {
 
@@ -113,8 +161,6 @@ public class SecurityUtils {
 				KeyPairGenerator kpg = getKeyPairGenerator(context);
 
 				generateKeyPair(keyStore, kpg);
-
-				persistKeyStore(context, keyStore);
 
 			}
 
@@ -151,98 +197,18 @@ public class SecurityUtils {
 	 */
 	private KeyStore loadKeystore(@NonNull Context context) throws GeneralSecurityException {
 
-		KeyStore keyStore;
+		KeyStore keyStore = KeyStore.getInstance(ANDROID_KEY_STORE);
 
-		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2){
+		try {
 
-			final String keyStorePath = context.getFilesDir() + "/keystore/";
+			keyStore.load(null);
 
-			File media = new File(keyStorePath);
-
-			if (!media.exists()) {
-				media.mkdirs();
-			}
-
-			File keyStoreFile = new File(media, "keystore.bks");
-
-			keyStore = KeyStore.getInstance(KEY_STORE_LEGACY);
-
-			InputStream keystoreIS = null;
-
-			if (keyStoreFile.exists() && keyStoreFile.isFile()){
-
-				try {
-					keystoreIS = new FileInputStream(keyStoreFile);
-				} catch (FileNotFoundException e) {
-					e.printStackTrace();
-					throw new GeneralSecurityException("Cannot load Android Keystore", e);
-				}
-
-			}
-
-			try {
-
-				keyStore.load(keystoreIS, null);
-
-			} catch (IOException e) {
-				e.printStackTrace();
-
-				throw new GeneralSecurityException("Cannot load Android Keystore", e);
-			}
-
-
-
-
-		} else {
-
-			keyStore = KeyStore.getInstance(ANDROID_KEY_STORE);
-
-			try {
-				keyStore.load(null);
-			} catch (IOException e) {
-				throw new GeneralSecurityException("Cannot load Android Keystore", e);
-			}
+		} catch (IOException e) {
+			throw new GeneralSecurityException("Cannot load Android Keystore", e);
 		}
 
 		return keyStore;
 
-
-	}
-
-	/**
-	 * Stores a keystore for future usage
-	 * @param context Application context to access device storage
-	 * @param keyStore The keystore to be persisted
-	 * @return true if the persistence operation is successful, false otherwise
-	 */
-	private boolean persistKeyStore(@NonNull Context context, @NonNull KeyStore keyStore){
-
-		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2){
-
-			final String keyStorePath = context.getFilesDir() + "/keystore/";
-
-			File media = new File(keyStorePath);
-
-			if (!media.exists()) {
-				media.mkdirs();
-			}
-
-			File keyStoreFile = new File(media, "keystore.bks");
-
-			try {
-				OutputStream os = new FileOutputStream(keyStoreFile);
-
-				keyStore.store(os, null);
-
-			} catch (IOException | GeneralSecurityException e) {
-				e.printStackTrace();
-
-				return false;
-			}
-
-		}
-
-		return true;
 
 	}
 
@@ -285,6 +251,24 @@ public class SecurityUtils {
 	})
 	@Retention(RetentionPolicy.SOURCE)
 	public @interface CryptoOperationMode{}
+
+	/**
+	 * Retrieve the Public Key for whatever you may want to
+	 * @param context Application Context
+	 * @return Public Key bytes
+	 * @throws GeneralSecurityException if the keystore fails to load
+	 */
+	public byte[] getPublicKey(@NonNull Context context) throws GeneralSecurityException {
+
+		KeyStore keyStore = loadKeystore(context);
+
+		KeyStore.PrivateKeyEntry privateKeyEntry = (KeyStore.PrivateKeyEntry) keyStore.getEntry(KEY_ALIAS, null);
+
+		PublicKey key = privateKeyEntry.getCertificate().getPublicKey();
+
+		return key.getEncoded();
+
+	}
 
 	/**
 	 * Uses the stored public key to perform a cryptographic operation on the provided payload
@@ -455,9 +439,9 @@ public class SecurityUtils {
 	 */
 	public byte[] processSensitivePayload(@NonNull Context context, @CryptoOperationMode int operation, @NonNull byte[] payload) throws GeneralSecurityException {
 
-		SharedPreferences prefs = context.getSharedPreferences(DroidACryptConsts.CRYPTO_SHPREFS, Context.MODE_PRIVATE);
+		SharedPreferences prefs = context.getSharedPreferences(CryptoConstants.CRYPTO_SHPREFS, Context.MODE_PRIVATE);
 
-		String cryptoAES = prefs.getString(DroidACryptConsts.AES_ENCRYPTED_KEY, null);
+		String cryptoAES = prefs.getString(CryptoConstants.AES_ENCRYPTED_KEY, null);
 
 		if (cryptoAES == null){
 			throw new GeneralSecurityException("No AES card in storage");

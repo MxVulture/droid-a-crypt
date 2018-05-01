@@ -10,6 +10,7 @@ import java.io.UnsupportedEncodingException;
 
 /**
  * Created by Víctor Macías on 12/6/17.
+ * Veggies N Bacon
  * victormaciasag@gmail.com
  */
 
@@ -44,7 +45,7 @@ public class CryptoPreferences {
 
 		if (encryptedValue != null){
 
-			if (SecurityUtils.isAndroidKeystoreAvailable()){
+			if (DroidACrypt.isAndroidKeystoreAvailable()){
 
 				decryptedValue = AESCryptHelper.getDecryptedPayload(context, encryptedValue);
 
@@ -74,7 +75,7 @@ public class CryptoPreferences {
 	public boolean saveString(@NonNull String cryptoKey, @NonNull String plainKey, @NonNull String value) throws UnsupportedEncodingException {
 
 
-		if (SecurityUtils.isAndroidKeystoreAvailable()){
+		if (DroidACrypt.isAndroidKeystoreAvailable()){
 
 			// We have Android KeyStore available so let's encrypt the thing
 

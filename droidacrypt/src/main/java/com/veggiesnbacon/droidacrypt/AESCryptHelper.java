@@ -8,6 +8,7 @@ import javax.crypto.Cipher;
 
 /**
  * Created by Víctor Macías on 11/3/17.
+ * Veggies N Bacon
  * victormaciasag@gmail.com
  */
 
@@ -23,7 +24,7 @@ public class AESCryptHelper {
 
 		try {
 
-			byte[] plaintBytes = SecurityUtils.getInstance().processSensitivePayload(
+			byte[] plaintBytes = DroidACrypt.getInstance().processSensitivePayload(
 					context,
 					Cipher.DECRYPT_MODE,
 					Base64.decode(b64EncryptedPayload, Base64.DEFAULT)
@@ -49,7 +50,7 @@ public class AESCryptHelper {
 
 		try {
 
-			byte[] encryptedPayload = SecurityUtils.getInstance().processSensitivePayload(
+			byte[] encryptedPayload = DroidACrypt.getInstance().processSensitivePayload(
 					context,
 					Cipher.ENCRYPT_MODE,
 					payload
